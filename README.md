@@ -6,7 +6,7 @@
 
 **Position:** Junior Cloud & DevOps Engineer (GCP / Django / React)
 
-**Submission Date:** 11 September 2026
+**Submission Date:** 13th September 2026
 
 ---
 
@@ -16,21 +16,7 @@ This project addresses the staging incident described in the Hiring Project Form
 
 ## Architecture Summary
 
-**Flow 1 — Implemented and tested (Tasks 2 and 3):**
-```
-Developer commits code --> pushes to GitHub (trigger)
-        |
-        +--> Lint Gate (flake8, black, eslint) --+
-        +--> Secret Scan Gate (gitleaks) --------+--> both must pass
-                                                        |
-                                              Deployed to GCP App Engine
-                                                        |
-Client --> Django REST Framework API --> DCYN Validation --> SQLite (local database)
-                                              |
-                                    (rejects invalid payloads)
-```
-
-**Flow 2 — Provisioned infrastructure (Task 1), independent of Flow 1:**
+**Flow 1 — Provisioned infrastructure (Task 1), independent of Flow 2:**
 ```
 terraform apply (run manually, not part of CI/CD)
         |
@@ -38,7 +24,21 @@ terraform apply (run manually, not part of CI/CD)
         |                                                                  |
         +--> Pub/Sub Topic (App event stream) --> [streaming sub, not built] --> BigQuery Dataset (D1 Staged/Enforced)
 ```
-The GCS bucket, the Pub/Sub topic, and the BigQuery dataset/table are real resources created by Terraform. The batch load job and streaming subscription are conceptual only — no code in this submission builds them. Flow 1 and Flow 2 do not trigger each other; the Django app does not publish to the Pub/Sub topic. See the presentation deck for the annotated two-flow diagram distinguishing solid (provisioned) from dashed/faded (conceptual) components.
+The GCS bucket, the Pub/Sub topic, and the BigQuery dataset/table are real resources created by Terraform. The batch load job and streaming subscription are conceptual only — no code in this submission builds them. Flow 1 and Flow 2 do not trigger each other; the Django app does not publish to the Pub/Sub topic. See the presentation deck for the annotated two-flow diagrams distinguishing solid (provisioned) from dashed/faded (conceptual) components.
+
+**Flow 2 — Implemented and tested (Tasks 2 and 3):**
+```
+Developer commits code --> pushes to GitHub (trigger)
+        |
+        +--> Lint Gate (flake8, black) --+
+        +--> Secret Scan Gate (gitleaks) -+--> both must pass
+                                                        |
+                                              Deployed to GCP App Engine
+                                                        |
+Client --> Django REST Framework API --> DCYN Validation --> SQLite (local database)
+                                              |
+                                    (rejects invalid payloads)
+```
 
 ## Folder Structure
 
@@ -163,7 +163,7 @@ Location: `.github/workflows/poka-yoke-build-gate.yml`
 
 A fail-closed GitHub Actions pipeline with two independent gates:
 
-- **Lint gate** — runs `flake8` and `black --check` on Python code, and `eslint` on JavaScript/React code.
+- **Lint gate** — runs `flake8` and `black --check` on Python code.
 - **Secret scan gate** — runs `gitleaks` across the full commit history to detect hardcoded credentials.
 
 The deploy job is only reachable if both gates pass (`needs: [lint, secret-scan]` combined with `if: success()`), so there is no path from a failing commit to a live deployment.
@@ -212,27 +212,3 @@ Then open the endpoint in a browser to use DRF's browsable API for testing paylo
 http://127.0.0.1:8000/api/onboarding/
 ```
 
-## Presentation
-
-Location: `presentation/`
-
-A 15-slide deck covering the architecture, the design rationale for each task, and a demonstration of the CI/CD pipeline succeeding on a compliant commit and failing closed on a non-compliant one.
-
-**Slide 3 (Architecture Overview)** uses the annotated diagram, structured as two fully separate flows:
-- **Flow 1 — Application CI/CD (Tasks 2 and 3):** Developer commits code → pushes to GitHub (the actual trigger) → fans out to the Lint Gate (flake8/black/eslint) and Secret Scan Gate (gitleaks) → both must pass → Deployed to GCP App Engine → Client sends requests to the running Django API → writes to SQLite
-- A plain text note under Flow 1 states that Django does not publish to Flow 2's Pub/Sub topic — no line is drawn for this, since a line would wrongly imply a connection exists
-- **Flow 2 — Infrastructure Provisioning (Task 1), independent of Flow 1:** triggered separately and manually by running `terraform apply`, which creates all three storage resources — the GCS bucket, the Pub/Sub topic, and the BigQuery dataset (all solid teal, actually provisioned)
-- Faded, dashed teal boxes and arrows — conceptual, unbuilt steps within Flow 2 only (batch load job, streaming subscription) converging into the BigQuery dataset
-- All purple boxes are implemented and tested; the horizontal divider and separate section labels make clear the two flows do not trigger each other
-
-**Slide 13 — End-to-End Flow**
-- Screenshot: `curl` / browsable API request with a valid payload → `201 ACCEPTED`
-- Screenshot: request with an invalid payload → `400 REJECTED` with structured field errors
-- Screenshot: `python manage.py test onboarding` — all tests passing
-- Caption note: these writes go to the local SQLite database (Task 3), not to the BigQuery dataset provisioned in Task 1
-
-**Slide 14 — Trade-offs & Design Boundaries**
-- Terraform provisions all three storage resources (GCS bucket, Pub/Sub topic, BigQuery dataset) — but no code moves data between them. A batch load job (D0 → D1) and a streaming subscription (Pub/Sub → D1) would be needed in production; neither is built here, since Task 1's scope was storage provisioning only
-- The Django app does not publish to the Pub/Sub topic — Task 1 and Task 3 are provisioned and demonstrated independently, per the brief's task scoping
-- SQLite (Task 3's actual write target) and BigQuery (Task 1's provisioned dataset) are two separate databases with no code path connecting them
-- The Row-Level Security filter and IAM conditions in Task 1 are illustrative; production would use a proper identity-to-region mapping and a security-pattern review for condition scope
