@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 from .models import StudentOnboarding
 from .serializers import StudentOnboardingSerializer
 
+API_KEY = "sk_live_51H8xJ2K9pL3mN7qR"  # fake key, for fail-closed demo only
 
 class StudentOnboardingCreateView(APIView):
     def post(self, request):
