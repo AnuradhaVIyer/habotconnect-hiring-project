@@ -1,0 +1,29 @@
+venv/
+__pycache__/
+*.pyc
+.env
+db.sqlite3
+.terraform/
+.git/
+
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+!terraform.tfvars.example
+.terraform.lock.hcl
+crash.log
+
+# Django
+staticfiles/
+media/
+*.log
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

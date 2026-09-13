@@ -1,0 +1,115 @@
+##############################################################
+# Task 2: Poka-Yoke Automated CI/CD Build Gate
+#
+# Design intent: this pipeline is "fail-closed" — any lint
+# violation OR any detected hardcoded secret immediately halts
+# the build. Nothing downstream (deploy) can run unless every
+# gate passes. There is no "warn and continue" path.
+##############################################################
+
+name: poka-yoke-build-gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  # ----------------------------------------------------------
+  # Gate 1: Static analysis / linting
+  # Blocks non-compliant Python (Django/DRF) and JS (React) code
+  # from proceeding past this job.
+  # ----------------------------------------------------------
+  lint:
+    name: Lint (fail-closed)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python lint tools
+        run: pip install flake8 black
+
+      - name: Run flake8 (fails job on any violation)
+        run: flake8 . --max-line-length=120
+
+      - name: Run black --check (fails job on formatting drift)
+        run: black --check .
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install JS lint tools
+        run: npm ci
+
+      - name: Run eslint (fails job on any violation)
+        run: npx eslint . --max-warnings=0
+
+  # ----------------------------------------------------------
+  # Gate 2: Secret scanning
+  # Blocks any commit containing raw API keys, tokens, or
+  # credentials — this is the direct response to the staging
+  # incident described in the brief (leaked API credentials).
+  # ----------------------------------------------------------
+  secret-scan:
+    name: Secret scan (fail-closed)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so scanner checks entire diff, not just HEAD
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # gitleaks exits non-zero on any detected secret, which
+        # fails this job and — via the "needs" gate below —
+        # blocks the deploy job entirely.
+
+  # ----------------------------------------------------------
+  # Gate 3 (illustrative): quarantine step
+  # On failure of either gate above, this job runs to make the
+  # fail-closed status explicit and visible, rather than the
+  # build silently disappearing.
+  # ----------------------------------------------------------
+  quarantine-on-failure:
+    name: Quarantine build
+    runs-on: ubuntu-latest
+    needs: [lint, secret-scan]
+    if: failure()
+    steps:
+      - name: Mark build as quarantined
+        run: |
+          echo "::error::Build quarantined — lint or secret-scan gate failed. Deploy blocked."
+          exit 1
+
+  # ----------------------------------------------------------
+  # Deploy — only reachable if BOTH gates pass. This is what
+  # makes the pipeline fail-closed rather than fail-open: there
+  # is no path to deploy without an explicit "needs" success.
+  # ----------------------------------------------------------
+  deploy:
+    name: Deploy (App Engine)
+    runs-on: ubuntu-latest
+    needs: [lint, secret-scan]
+    if: success() && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Deploy to GCP App Engine
+        uses: google-github-actions/deploy-appengine@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
